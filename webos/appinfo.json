@@ -1,0 +1,14 @@
+{
+    "id": "org.gsrecomp.probe",
+    "version": "0.1.0",
+    "vendor": "GSRecomp webOS probe",
+    "type": "native",
+    "main": "bin/gsr-launcher",
+    "title": "Golden Sun probe",
+    "icon": "icon.png",
+    "largeIcon": "largeIcon.png",
+    "iconColor": "#c08a2b",
+    "appDescription": "Private test build: GSRecomp (Golden Sun recompiled) on webOS. Built from your own ROM; do not share.",
+    "supportTouchMode": "none",
+    "requiredACG": []
+}

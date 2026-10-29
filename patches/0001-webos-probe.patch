@@ -1,0 +1,33 @@
+diff --git a/engine/src/armv4t/runtime_arm.cpp b/engine/src/armv4t/runtime_arm.cpp
+index fd4eb70..bafe776 100644
+--- a/engine/src/armv4t/runtime_arm.cpp
++++ b/engine/src/armv4t/runtime_arm.cpp
+@@ -2369,9 +2369,9 @@ void runtime_dispatch(uint32_t target_pc) {
+         // Resolve first, then invoke with no work after the call. This is the
+         // guest tail-transfer boundary; GCC/Clang can lower it to a jump.
+         if (RuntimeGuestFn fn = g_runtime_ram_dispatch_hook(pc, thumb ? 1 : 0)) {
+-#if defined(__clang__)
+-            [[clang::musttail]]
+-#endif
++            // (webOS probe) No [[clang::musttail]]: clang requires the callee's
++            // signature to match this function's, and it does not (no
++            // parameters vs. two). A plain return is still a tail call at -O2.
+             return fn();
+         }
+     }
+diff --git a/engine/src/runtime/host_window.cpp b/engine/src/runtime/host_window.cpp
+index 180b228..5cc84be 100644
+--- a/engine/src/runtime/host_window.cpp
++++ b/engine/src/runtime/host_window.cpp
+@@ -1145,7 +1145,10 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
+ #if defined(_WIN32)
+     const bool direct3d_compat = env_flag("GSR_DIRECT3D_COMPAT");
+ #else
+-    const bool direct3d_compat = false;
++    // (webOS probe) GSR_NO_GL_WINDOW=1: no OpenGL window and no "opengl"
++    // render driver, as the Windows compatibility start-up does; used to run
++    // the ARM build headless under emulation with SDL's dummy video driver.
++    const bool direct3d_compat = env_flag("GSR_NO_GL_WINDOW");
+ #endif
+     Uint32 window_flags = SDL_WINDOW_SHOWN |
+         static_cast<Uint32>(SDL_WINDOW_RESIZABLE);
