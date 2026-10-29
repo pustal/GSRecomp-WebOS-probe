@@ -25,17 +25,16 @@ bindings on the first run (OK = A, Back = B, Blue = Start, Yellow = Select,
 CH+/CH- = L/R, Red = the engine's menu), raises the stack limit and starts the
 engine with its cost probe on, so frame timing reaches `data/stdout.log`.
 
-On the first start it first runs the engine's headless timing pass twice,
-natively and fully interpreted (1800 frames, 30 s of game time, uncapped; the
-screen stays black meanwhile) and writes the frame rates to
-`data/benchmark.txt`, with the last frame of each as `bench-*.png`. Delete
-`benchmark.txt` to measure again.
+The game's FPS counter is on, and the engine's cost probe writes a timing
+summary to `data/stdout.log` when the game exits (remote Exit). There is no
+pre-game benchmark: webOS stops an app that shows no window for a while after
+launch.
 
 ## Results so far (qemu-arm on the build PC, not the TV)
 
 | Run | Frames | Time | Rate |
 |---|---|---|---|
-| native, headless | 1800 | 90 s | 19.9 fps |
+| native, headless (`--frames 1800`) | 1800 | 90 s | 19.9 fps |
 | interpreted, headless | 1800 | 102 s | 17.6 fps |
 
 The ARM build boots, runs and draws correctly (it reaches the naming screen).
@@ -51,7 +50,11 @@ cost; drawing the picture and the engine's per-frame work are.
   - `GSR_NO_GL_WINDOW=1` starts without an OpenGL window, to run the ARM
     build headless under qemu with SDL's dummy driver.
 - `cmake/WebOSClangToolchain.cmake` hides only the C++ runtime from the
-  engine's exports: the game library calls about fifty engine functions.
+  engine's exports (the game library calls about fifty engine functions) and
+  links with `--disable-new-dtags`: a DT_RPATH wins over the LD_LIBRARY_PATH
+  webOS sets, so the bundled SDL-webOS 2.30 is used, not the TV's older SDL
+  (which lacks `SDL_SetTextureScaleMode`). The launcher also puts its folder
+  first on LD_LIBRARY_PATH.
 - `compat/GL/gl.h` and `compat/gl_desktop_stubs.c`: webOS has no desktop OpenGL; SDL's `SDL_opengl.h`
   stands in for the types. The GL-only extras (screen filters, the wider-view
   field renderer) find no desktop GL functions on the TV's OpenGL ES context

@@ -14,18 +14,17 @@
  *      CH+/CH- = L/R, Red = the engine's menu;
  *   4. raises the stack limit (generated code nests deeply where the compiler
  *      could not turn a guest jump into a host jump);
- *   5. on the first start (no benchmark.txt yet), runs the engine's headless
- *      timing pass twice, natively and with every instruction interpreted
- *      (`--frames 1800`: 30 s of game time, uncapped; the screen stays black),
- *      and writes the frame rates to benchmark.txt; delete it to measure again;
- *   6. execs bin/GoldenSunRecomp with --rom, --user-directory and --save, plus
- *      the engine's cost probe so frame timing reaches the log.
+ *   5. puts its own folder first on LD_LIBRARY_PATH (webOS's path would load
+ *      the TV's older system SDL) and execs bin/GoldenSunRecomp with --rom,
+ *      --user-directory and --save, plus the engine's cost probe, whose timing
+ *      summary reaches stdout.log when the game exits (remote Exit).
+ *
+ * (No pre-game benchmark: webOS stops an app that shows no window for a while
+ * after launch, so all measuring happens in the game's own window: its FPS
+ * counter is on, and the cost probe's summary is written at exit.)
  */
-#include <fcntl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -47,8 +46,6 @@ namespace
 
 /** Stack for the engine's main thread (the Windows build links 16 MB; leave room). */
 constexpr rlim_t kStackBytes = 256ull * 1024ull * 1024ull;
-/** Frames of the benchmark pass: 30 s of game time at the GBA's 59.73 Hz. */
-constexpr int kBenchmarkFrames = 1800;
 /** Where webOS mounts USB drives: /tmp/usb/<device>/<partition>. */
 constexpr const char *kUsbRoot = "/tmp/usb";
 
@@ -181,80 +178,6 @@ void SeedBindings(const fs::path &data)
                    "Menu=Red\n");
 }
 
-/** Seconds on a monotonic clock. */
-double Now()
-{
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) / 1e9;
-}
-
-/**
- * Runs @p args (argv[0] is the program) to completion, its output appended to
- * @p log, with @p interpret set GBARECOMP_FORCE_INTERP=1.
- * @return Wall-clock seconds, or a negative number if it failed.
- */
-double RunTimed(const std::vector<std::string> &args, const fs::path &log, bool interpret)
-{
-    const double started = Now();
-    const pid_t pid = fork();
-    if (pid < 0)
-        return -1.0;
-    if (pid == 0) {
-        const int fd = open(log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd >= 0) {
-            dup2(fd, STDOUT_FILENO);
-            dup2(fd, STDERR_FILENO);
-            close(fd);
-        }
-        if (interpret)
-            setenv("GBARECOMP_FORCE_INTERP", "1", 1);
-        std::vector<char *> argvOut;
-        for (const std::string &a : args)
-            argvOut.push_back(const_cast<char *>(a.c_str()));
-        argvOut.push_back(nullptr);
-        execv(argvOut[0], argvOut.data());
-        _exit(127);
-    }
-    int status = 0;
-    if (waitpid(pid, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        return -1.0;
-    return Now() - started;
-}
-
-/** The first-start benchmark (see the file comment). */
-void Benchmark(const std::string &engine, const fs::path &rom, const fs::path &data)
-{
-    const fs::path result = data / "benchmark.txt";
-    std::error_code ec;
-    if (fs::exists(result, ec))
-        return;
-    const fs::path log = data / "benchmark.log";
-    fs::remove(log, ec);
-    const std::string frames = std::to_string(kBenchmarkFrames);
-    std::ofstream out(result);
-    out << "GSRecomp webOS probe benchmark: " << kBenchmarkFrames
-        << " frames (30 s of game time) from power-on, uncapped, no display.\n"
-        << "60 fps or more means the game can keep full speed.\n";
-    for (const bool interpret : { false, true }) {
-        const std::vector<std::string> args = { engine, "--rom", rom.string(), "--user-directory", data.string(),
-                                                "--save", (data / "saves" / "benchmark.sav").string(),
-                                                "--frames", frames, "--dump-png",
-                                                (data / (interpret ? "bench-interpreted.png" : "bench-native.png")).string() };
-        const double seconds = RunTimed(args, log, interpret);
-        const char *mode = interpret ? "interpreted" : "native";
-        if (seconds > 0) {
-            out << mode << ": " << seconds << " s, " << (kBenchmarkFrames / seconds) << " fps\n";
-            std::printf("[probe] benchmark %s: %.1f s, %.1f fps\n", mode, seconds, kBenchmarkFrames / seconds);
-        } else {
-            out << mode << ": failed (see benchmark.log)\n";
-            std::printf("[probe] benchmark %s failed\n", mode);
-        }
-        out.flush();
-    }
-    fs::remove(data / "saves" / "benchmark.sav", ec);
-}
-
 } // namespace
 
 int main(int argc, char **argv)
@@ -279,6 +202,12 @@ int main(int argc, char **argv)
             std::printf("[probe] could not raise the stack limit: %s\n", std::strerror(errno));
     }
 
+    // The bundled libraries (SDL-webOS 2.30, the game library) first: webOS's
+    // LD_LIBRARY_PATH would otherwise load the TV's older system SDL.
+    const char *oldPath = std::getenv("LD_LIBRARY_PATH");
+    const std::string libraryPath = bin.string() + (oldPath && *oldPath ? ":" + std::string(oldPath) : "");
+    setenv("LD_LIBRARY_PATH", libraryPath.c_str(), 1);
+
     // Deliver Back to the game instead of webOS (SDL reads hints from the environment).
     setenv("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true", 1);
     setenv("GBARECOMP_CONTROLS_DIR", data.c_str(), 1);
@@ -288,7 +217,6 @@ int main(int argc, char **argv)
         std::printf("[probe] could not enter %s: %s\n", data.c_str(), std::strerror(errno));
 
     const std::string engine = (bin / "GoldenSunRecomp").string();
-    Benchmark(engine, rom, data);
     const std::string userDir = data.string();
     const std::string save = (data / "saves" / "goldensun.sav").string();
     std::vector<std::string> args = { engine, "--rom", rom.string(), "--user-directory", userDir, "--save", save };

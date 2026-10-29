@@ -38,7 +38,9 @@ set(_webos_cpu_flags "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3 -D_LARGEFILE
 set(CMAKE_C_FLAGS_INIT "${_webos_cpu_flags}")
 set(CMAKE_CXX_FLAGS_INIT "${_webos_cpu_flags}")
 
-set(_webos_link_flags "-fuse-ld=lld -static-libstdc++ -static-libgcc -Wl,--exclude-libs,libstdc++.a:libgcc.a:libgcc_eh.a")
+set(_webos_link_flags "-fuse-ld=lld -static-libstdc++ -static-libgcc -Wl,--exclude-libs,libstdc++.a:libgcc.a:libgcc_eh.a -Wl,--disable-new-dtags")
+# (--disable-new-dtags: DT_RPATH, which wins over the LD_LIBRARY_PATH webOS sets,
+# so the bundled SDL-webOS is used instead of the TV's older system SDL.)
 # (GSRecomp: the game library calls into the engine program, so the engine's
 # own static libraries must stay exported; only the C++ runtime is hidden.)
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${_webos_link_flags}")
